@@ -1,0 +1,122 @@
+name: "Terraform CI/CD"
+
+on:
+  push:
+    branches:
+      - terraform
+  pull_request:
+    branches:
+      - terraform
+
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+  PLAN: plan.tfplan
+
+jobs:
+  # 1. ETAPA DE VALIDACIÓN
+  validate:
+    name: "Validate"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Inicializar Terraform
+        run: terraform init
+
+      - name: Validar archivos .tf
+        run: terraform validate
+
+  # 2. ETAPA DE PLAN
+  plan:
+    name: "Plan"
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Inicializar Terraform
+        run: terraform init
+
+      - name: Generar el Plan de Terraform
+        run: terraform plan -out=${{ env.PLAN }}
+
+      # Comentario automático en Pull Requests (similar al curl a la API de GitLab)
+      - name: Comentar en la Pull Request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const execSync = require('child_process').execSync;
+            const planOutput = execSync('terraform show -no-color ' + process.env.PLAN).toString();
+            const body = `#### Resultado del Plan de Terraform 📖
+            \`\`\`diff
+            ${planOutput}
+            \`\`\``;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            })
+
+      - name: Guardar Plan como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: tf-plan
+          path: ${{ env.PLAN }}
+
+  # 3. ETAPA DE APLICACIÓN (Misma lógica manual)
+  apply:
+    name: "Apply"
+    needs: plan
+    if: github.ref == 'refs/heads/terraform' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # En GitHub, para hacer una aprobación manual como en GitLab, se usa un "environment"
+    environment: production
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Inicializar Terraform
+        run: terraform init
+
+      - name: Descargar el artefacto del Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tf-plan
+
+      - name: Aplicar cambios (terraform apply)
+        run: terraform apply -input=false ${{ env.PLAN }}
+
+  # 4. ETAPA DE DESTRUCCIÓN
+  destroy:
+    name: "Destroy"
+    needs: apply
+    if: github.ref == 'refs/heads/terraform' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: destroy-env
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Inicializar Terraform
+        run: terraform init
+
+      - name: Destruir recursos
+        run: terraform destroy --auto-approve
