@@ -5,19 +5,25 @@ terraform {
       version = "~> 5.15"
     }
   }
+  backend "s3" {
+    bucket         = "prueba-tf-state-guidoskf"
+    key            = "terraform"
+    region         = "us-west-1"
+    dynamodb_table = "app-state"
+  }
 }
 
+# Configure the AWS Provider
 provider "aws" {
   region = "us-west-1"
 }
 
-# Busca automáticamente la última imagen oficial de Ubuntu 22.04 en us-west-1
 data "aws_ami" "ubuntu" {
   most_recent = true
 
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+    values = ["ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*"]
   }
 
   filter {
@@ -25,11 +31,11 @@ data "aws_ami" "ubuntu" {
     values = ["hvm"]
   }
 
-  owners = ["099720109477"] # ID oficial del creador de Ubuntu (Canonical)
+  owners = ["099720109477"] # Canonical
 }
 
 resource "aws_instance" "prueba" {
-  count = 2
+  count         = 2
   ami           = data.aws_ami.ubuntu.id
   instance_type = "t3.micro"
   tags = {
