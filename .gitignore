@@ -1,0 +1,5 @@
+# Directorios y archivos de Terraform a ignorar
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
