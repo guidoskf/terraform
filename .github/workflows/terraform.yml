@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - terraform
+      - terraform-2
   pull_request:
     branches:
       - terraform
+      - terraform-2
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -15,7 +17,7 @@ env:
   PLAN: plan.tfplan
 
 jobs:
-  # 1. ETAPA DE VALIDACIÓN
+  # 1. ETAPA DE VALIDACIÓN (Corre en ambas ramas: terraform y terraform-2)
   validate:
     name: "Validate"
     runs-on: ubuntu-latest
@@ -32,10 +34,11 @@ jobs:
       - name: Validar archivos .tf
         run: terraform validate
 
-  # 2. ETAPA DE PLAN
+  # 2. ETAPA DE PLAN (SÓLO corre en la rama principal 'terraform')
   plan:
     name: "Plan"
     needs: validate
+    if: github.ref == 'refs/heads/terraform'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del código
@@ -50,7 +53,6 @@ jobs:
       - name: Generar el Plan de Terraform
         run: terraform plan -out=${{ env.PLAN }}
 
-      # Comentario automático en Pull Requests (similar al curl a la API de GitLab)
       - name: Comentar en la Pull Request
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
@@ -58,10 +60,7 @@ jobs:
           script: |
             const execSync = require('child_process').execSync;
             const planOutput = execSync('terraform show -no-color ' + process.env.PLAN).toString();
-            const body = `#### Resultado del Plan de Terraform 📖
-            \`\`\`diff
-            ${planOutput}
-            \`\`\``;
+            const body = `#### Resultado del Plan de Terraform 🤖\n\`\`\`diff\n${planOutput}\n\`\`\``;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
@@ -75,13 +74,12 @@ jobs:
           name: tf-plan
           path: ${{ env.PLAN }}
 
-  # 3. ETAPA DE APLICACIÓN (Misma lógica manual)
+  # 3. ETAPA DE APLICACIÓN (SÓLO corre en la rama principal 'terraform')
   apply:
     name: "Apply"
     needs: plan
     if: github.ref == 'refs/heads/terraform' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    # En GitHub, para hacer una aprobación manual como en GitLab, se usa un "environment"
     environment: production
     steps:
       - name: Checkout del código
@@ -101,7 +99,7 @@ jobs:
       - name: Aplicar cambios (terraform apply)
         run: terraform apply -input=false ${{ env.PLAN }}
 
-  # 4. ETAPA DE DESTRUCCIÓN
+  # 4. ETAPA DE DESTRUCCIÓN (SÓLO corre en la rama principal 'terraform')
   destroy:
     name: "Destroy"
     needs: apply
